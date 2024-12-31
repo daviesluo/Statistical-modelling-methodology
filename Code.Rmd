@@ -1,0 +1,421 @@
+---
+title: "Breast Cancer Analysis"
+author: "Davies Luo (Zheng Luo)"
+date: "2023-11-24"
+output: 
+  pdf_document:
+    extra_dependencies: ["caption", "float"]
+header-includes:
+  - \usepackage{caption}
+  - \captionsetup[table]{font=small}
+  - \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load, include=FALSE}
+library(mlbench)
+data(BreastCancer)
+```
+
+# Introduction
+Breast cancer diagnosis is a critical and challenging task in medical science, where accurate classification of tumors can significantly impact patient outcomes. The complexity of cancer pathology necessitates the use of advanced statistical techniques to discern patterns and relationships within clinical data. This report delves into an analytical exploration of the BreastCancer dataset, comprising cytological characteristics from fine needle aspiration biopsies. I employ a multifaceted approach, utilizing exploratory data analysis, hierarchical clustering, principal component analysis (PCA), and logistic regression models to unravel the intrinsic data structure and develop robust classifiers. My objective is to identify the most informative cytological features that can accurately distinguish between benign and malignant breast tissue samples, ultimately contributing to the enhancement of diagnostic procedures.
+
+```{r Data cleaning, include=FALSE}
+BreastCancer$Cl.thickness <- as.numeric(as.character(BreastCancer$Cl.thickness))
+BreastCancer$Cell.size <- as.numeric(as.character(BreastCancer$Cell.size))
+BreastCancer$Cell.shape <- as.numeric(as.character(BreastCancer$Cell.shape))
+BreastCancer$Marg.adhesion <- as.numeric(as.character(BreastCancer$Marg.adhesion))
+BreastCancer$Epith.c.size <- as.numeric(as.character(BreastCancer$Epith.c.size))
+BreastCancer$Bare.nuclei <- as.numeric(as.character(BreastCancer$Bare.nuclei))
+BreastCancer$Bl.cromatin <- as.numeric(as.character(BreastCancer$Bl.cromatin))
+BreastCancer$Normal.nucleoli <- as.numeric(as.character(BreastCancer$Normal.nucleoli))
+BreastCancer$Mitoses <- as.numeric(as.character(BreastCancer$Mitoses))
+
+BreastCancer <- na.omit(BreastCancer)
+
+df0 <- BreastCancer[, names(BreastCancer) != "Id"]
+```
+
+# Data Exploratory
+Prior to the in-depth analysis of the BreastCancer dataset, I performed essential data cleaning, which involved converting several key cytological characteristics to numerical values and removing records with missing data to enhance data integrity. Following this preparation, I employed a combination of graphical and numerical approaches to unravel and understand the complex relationships inherent in the dataset. This exploratory analysis is pivotal in providing a comprehensive overview of the dataset's structure, highlighting key patterns, distributions, and correlations amongst the variables. By integrating both visual and quantitative methods, I aimed to gain a deeper insight into the dataset, setting a solid foundation for more advanced statistical modeling and interpretation in the later stages of this research.
+```{r data exploratory, echo=FALSE, fig.align = "center", out.width = "75%", out.height = "75%", fig.cap="The graphical summary of the data", fig.pos="H"}
+library(ggplot2)
+library(reshape2)
+library(knitr)
+
+correlation_matrix <- cor(df0[,1:9])
+
+melted_correlation <- melt(correlation_matrix)
+
+ggplot(data = melted_correlation, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        axis.title = element_blank())
+
+kable(t(summary(df0)), caption = "The numerical summary of the data", digits = 3)
+```
+
+The heatmap stands out as an effective graphical tool, immediately visualizing the correlations between cytological characteristics. Shades ranging from light to dark red indicate the strength of positive correlations, with the most intense reds denoting the strongest relationships. This is particularly evident with variables such as Cl.thickness, Cell.size, and Cell.shape, which consistently exhibit higher correlations with each other, suggesting a potential combined role in the progression of malignancy.
+
+The numerical summaries complement these findings by quantitatively describing the distribution of each characteristic. Notably, variables such as Bl.cromatin and Normal.nucleoli show a pronounced skew towards higher values, suggesting that a subset of the dataset contains samples with notably severe cytological abnormalities. The distributional data further aid in discerning the nuances in the dataset, highlighting right-skewed patterns that are indicative of variations in the progression or severity of disease states.
+
+### Relationships Between Variables
+Looking at the heatmap in conjunction with the response variable, Class, I notice distinct patterns where certain characteristics like Cl.thickness, Cell.size, and Cell.shape have a pronounced correlation with the cancer classification. This is suggested by the deeper red hues along the corresponding rows and columns in the heatmap, indicating their potential as significant predictors in distinguishing malignancy. In contrast, variables such as Mitoses exhibit lighter shades, suggesting a weaker direct relationship with the response variable.
+
+The numerical summary sheds light on the range and median values of these characteristics, further differentiating between benign and malignant samples. For instance, the higher mean and maximum values for Cell.size and Cell.shape within malignant samples reinforce the idea that these variables are significant indicators of malignancy. The contrast in values between the two classes highlights the potential of these variables to contribute to an accurate cancer classification, supporting the efficacy of a multivariate approach in predictive modeling.
+
+### Predictor Variables Relationships
+The heatmap also offers insights into the relationships among predictor variables, revealing red blocks where strong positive correlations exist. The deep red square between Cell.size and Cell.shape, for example, suggests redundancy between these variables, which could have implications for models that assume predictor independence. In contrast, the numerical summary provides a different perspective, revealing the spread and distribution of values that underpin these correlations. This statistical context is invaluable for interpreting the heatmap and understanding the multifaceted relationships within the data.
+
+By integrating the graphical patterns observed in the heatmap with the statistical context provided by the numerical summary, a more comprehensive picture of the data emerges. This combined analysis highlights the intricate interplay between predictor variables, allowing for a richer understanding of the data structure. It informs subsequent modeling decisions and preprocessing steps, ensuring that the predictors used in any subsequent models reflect the true nature of the underlying relationships within the dataset.
+
+# Hierarchical Clustering
+In this section of the analysis, I delve into Hierarchical Clustering, a crucial technique for uncovering the inherent structure within our breast cancer dataset. Hierarchical Clustering is particularly adept at revealing natural groupings and relationships among cytological characteristics, which are pivotal in understanding the complex nature of breast cancer. By employing this method, I aim to explore how different variables cluster together and whether these clusters can provide insights into distinguishing between benign and malignant cases. This approach is not only fundamental in identifying patterns in high-dimensional data but also serves as a basis for more informed and nuanced data-driven decisions. Through the application of different linkage methods, such as single, complete, and average linkage, I will assess the robustness and suitability of each in capturing the underlying biological processes, thereby providing a comprehensive view of the relationships within the data.
+
+### Single-linkage Clustering
+```{r fig.align = "center", fig.align = "center", out.width = "45%", out.height = "45%", echo=FALSE, fig.cap="Single Linkage Dendrogram", fig.pos="H"}
+df_numeric <- df0[, sapply(df0, is.numeric)]
+df_no_constant <- df_numeric[, sapply(df_numeric, function(x) sd(x) > 0)]
+
+correlation_matrix <- cor(df_no_constant)
+cor_dist_mat <- as.dist(1 - correlation_matrix)
+
+hc_single_cor <- hclust(cor_dist_mat, method = "single")
+
+# Plot the dendrogram for single linkage
+par(cex = 0.6)  # Adjust for better readability
+plot(hc_single_cor, main = "Single Linkage")
+```
+
+The dendrogram produced from the single-linkage hierarchical clustering, which relies on correlation-based distances, fails to delineate two distinct groups of variables that could correspond to benign and malignant classes. 
+
+Statistically, single-linkage clustering is sensitive to outliers, it forms clusters by successively linking individual observations with the smallest distance. This can lead to a chaining effect, where variables are clustered together based on the strength of the nearest neighbor without considering the overall data structure. Such chaining can artificially elongate clusters, pulling in loosely related variables and obscuring meaningful groupings. The method's inability to capture the broader inter-variable correlations means that it cannot reliably differentiate clusters that may represent the critical underlying biological processes distinguishing tumor classes. Consequently, the single-linkage approach does not provide a clear or robust separation in this biomedical context, suggesting the need for alternative clustering strategies that consider the global data structure for a more meaningful biological interpretation.
+
+### Complete-linkage and Average-linkage Clustering
+```{r echo=FALSE, fig.align = "center", fig.cap="Complete and Average Linkage Dendrograms", out.height="40%", out.width="60%", fig.pos="H"}
+# Setting up the plotting area for two side-by-side plots
+par(mfrow = c(1, 2), cex = 0.6)  # Adjust for better readability
+
+# Plot the dendrogram for complete linkage
+hc_complete_cor <- hclust(cor_dist_mat, method = "complete")
+plot(hc_complete_cor, main = "Complete Linkage")
+
+# Plot the dendrogram for average linkage
+hc_average_cor <- hclust(cor_dist_mat, method = "average")
+plot(hc_average_cor, main = "Average Linkage")
+
+par(mfrow = c(1, 1))
+```
+
+Based on the hierarchical clustering results, it becomes evident that the type of linkage employed significantly impacts the structure of the resulting dendrograms. The complete-linkage dendrogram, which clusters variables based on their maximum pairwise distance, suggests a pronounced distinction between clusters. This method's tendency to form compact clusters is clearly observed, with variables joining at various heights, indicating different levels of similarity and a conservative clustering approach. Statistically, this method is robust against outliers, as it does not allow a single close relationship to unduly influence the clustering process. As a result, the dendrogram exhibits a balanced branching pattern, with no individual variable disproportionately distanced from the rest, reflecting a more uniform intra-cluster similarity.
+
+In contrast, the average-linkage dendrogram presents a more nuanced picture. Clusters form by calculating the average distance between all observation pairs, offering a middle ground between the sensitivity of single-linkage to outliers and the potential for complete-linkage to overemphasize dissimilarities. The dendrogram produced by this method reveals a gradual separation of clusters, indicating a spectrum of similarity levels rather than a strict binary division. This method provides a comprehensive view of the data's structure, with the dendrogram's graduated branch heights suggesting a more refined clustering that incorporates a broader range of inter-variable relationships.
+
+The observations from these dendrograms lead to the conclusion that the clustering results are indeed dependent on the chosen linkage method. Complete-linkage clustering is characterized by its creation of well-defined, tightly-knit clusters, which could be preferable in studies where the strongest correlations are of interest. Average-linkage clustering, however, with its more graded approach, may be more suitable for datasets where the relationships are complex and a single outlier does not fully represent the data's structure. These differences highlight the importance of selecting a linkage method that aligns with the objectives of the analysis and the nature of the dataset at hand. The choice of linkage method is not merely a procedural detail but a fundamental decision that can alter the interpretation and conclusions drawn from the data.
+
+### PCA Analysis
+In the pursuit of understanding which variables most significantly differentiate between the two groups within the dataset, Principal Component Analysis (PCA) is employed:
+```{r PCA, fig.align = "center", out.width = "65%", out.height = "65%", echo=FALSE, fig.cap="PCA Loadings and Scatter Plot", fig.pos="H"}
+pca_result <- prcomp(df0[,1:9], scale.=TRUE)
+rotation_rounded <- round(pca_result$rotation, 3)
+rotation_rounded
+plot(pca_result$x[,1:2], col=df0$Class)
+```
+`PC1 = (-0.302 * Cl.thickness) + (-0.381 * Cell.size) + (-0.378 * Cell.shape) + (-0.333 * Marg.adhesion) + (-0.336 * Epith.c.size) + (-0.335 * Bare.nuclei) + (-0.346 * Bl.cromatin) + (-0.336 * Normal.nucleoli) + (-0.230 * Mitoses)`
+
+`PC2 =  (-0.141 * Cl.thickness) + (-0.047 * Cell.size) + (-0.082 * Cell.shape) + (-0.052 * Marg.adhesion) + (0.164 * Epith.c.size) + (-0.261 * Bare.nuclei) + (-0.228 * Bl.cromatin) + (0.034 * Normal.nucleoli) + (0.906 * Mitoses})`
+
+PCA reduces the dimensionality of the data by transforming the original variables into a new set of uncorrelated features, known as principal components (PCs). These components are constructed in such a way that the first few retain the majority of the variation present in all of the original variables. By examining the loadings of the original variables on these components and their graphical representation, I can identify which features contribute most to the variance and potentially distinguish between benign and malignant classes.
+
+The first principal component (PC1) is more influenced by Cell.size, Cell.shape, and Bl.cromatin, which indicates their importance in explaining the variance between samples. This is further validated by the clear visual separation between benign and malignant classes along PC1 in the scatter plot. Suggesting that PC1 represents a measure of overall cell abnormality and chromatin pattern. Negative coefficients indicate that higher values on these variables (which might indicate more abnormal cells) contribute to a higher value on PC1. Thus, PC1 can be seen as representing general cell abnormality and chromatin patterns, capturing the majority of variance in these features.
+
+The second principal component (PC2) prominently features Mitoses. This variable's distinct loading on PC2 suggests its role in distinguishing between the classes, which is also evident in the scatter plot. Potentially representing the rate of cell division. Variables like Bare.nuclei and Bl.cromatin have negative loadings, indicating that higher values on these decrease the PC2 score, offering a contrast to Mitoses.Therefore, PC2 appears to differentiate samples based on the rate of cell division, contrasting it with nuclear and chromatin features.
+
+Both these components underscore the multifaceted nature of the data, paving the way for dimensionality reduction that retains critical diagnostic information.
+
+# K-means Clustering
+The K-means clustering algorithm is a pivotal method in unsupervised machine learning, commonly used for identifying patterns and groupings within datasets without pre-labeled outcomes. My goal in implementing this algorithm from scratch is to not only understand the inner workings of the clustering process but also to tailor the algorithm to suit specific needs that may arise in data analysis. By building a custom version, I can explore various modifications and optimizations, and potentially improve upon the algorithm's performance for the particular characteristics of the breast cancer dataset I am examining.
+```{r function to implement the K-means algorithm, echo=TRUE}
+my_kmeans <- function(X, K, max.iter = 100) {
+  # Randomly assign initial cluster_center
+  cluster_center <- X[sample(nrow(X), K), ]
+  clusters <- rep(0, nrow(X))
+  for (i in 1:max.iter) {
+    # Assign clusters based on closest cluster_center
+    clusters <- apply(X, 1, function(x) {
+      which.min(colSums(t(cluster_center - x)^2))})
+    
+    # Recalculate cluster_center
+    new_cluster_center <- matrix(ncol = ncol(X), nrow = K)
+    for (k in 1:K) {
+      new_cluster_center[k, ] <- colMeans(X[clusters == k, , drop=FALSE], na.rm = TRUE)}
+    
+    # Check for convergence
+    if (all(cluster_center == new_cluster_center)) {
+      message("Convergence reached after ", i, " iterations.")
+      break}
+    
+    cluster_center <- new_cluster_center}
+  
+  # Calculate within-cluster sum-of-squares
+  SSW <- sum(sapply(1:K, function(k) {
+    sum(rowSums((X[clusters == k, , drop=FALSE] - cluster_center[k, ])^2))}))
+  
+  return(list(cluster = clusters, centers = cluster_center, ssw = SSW))}
+```
+The custom my_kmeans function created here is designed to partition the dataset into K distinct clusters based on the similarity of data points. It begins by randomly selecting K points from the dataset to serve as initial cluster-centers. The algorithm then iterates over two main steps: assignment and update. In the assignment step, each data point is assigned to the nearest centroid, forming K clusters. The update step recalculates the cluster-centers as the mean of all points in each cluster. This process repeats until the cluster-centers no longer change significantly, indicating convergence. The function outputs the final cluster assignments, the locations of the cluster-centers, and the within-cluster sum-of-squares (SSW), a measure of clustering quality. The SSW is a critical outcome, as it quantifies the compactness of the clusters; the lower the SSW, the tighter and more coherent the clusters are, which is often desirable in clustering scenarios.
+
+### Applying Custom K-means and Validation with R’s K-means
+My objective is to apply the custom K-means function to the breast cancer dataset to identify natural groupings that could correspond to benign and malignant tumor classifications. I aim to run this clustering multiple times to minimize within-cluster variation and compare the results with R’s built-in kmeans function to validate the robustness and accuracy of my custom implementation.
+```{r include=FALSE}
+df <- BreastCancer[, -c(1, 11)] 
+df <- df[complete.cases(df), ] 
+df <- data.frame(lapply(df, as.numeric)) 
+
+set.seed(123) 
+
+# Apply custom kmeans function multiple times
+num_runs <- 10
+best_run <- list(ssw = Inf)
+for (i in 1:num_runs) {
+  set.seed(i) # Different seed for each run
+  run <- my_kmeans(df, K=2)
+  if (run$ssw < best_run$ssw) {
+    best_run <- run
+  }
+}
+best_run$ssw
+
+kable(summary(best_run))
+
+best_run$ssw
+```
+
+```{r include=FALSE}
+# Compare with R's kmeans
+set.seed(123)
+r_kmeans <- kmeans(df, centers = 2, nstart = 25)
+
+# Check if the two partitions are the same
+identical(as.factor(best_run$cluster), as.factor(r_kmeans$cluster))
+```
+
+Initially, I preprocessed the breast cancer dataset to ensure numeric values and removed any incomplete cases to maintain the quality of the analysis. A consistent random seed was set before multiple runs to ensure the reproducibility of the results.
+
+In the clustering phase, I invoked the custom my_kmeans function multiple times, each time with a different seed to avoid local minima and to find the clustering that results in the smallest within-cluster sum of squares (SSW). The SSW is crucial as it quantifies how compact the clusters are, with a lower value indicating that data points within a cluster are close to each other, suggesting a good quality of clustering.
+
+Upon finding the best clustering run after 6 attemps, I observed that the SSW value was 30166.39, which served as a benchmark for clustering quality. However, when comparing the partitioning from my custom function with that from R’s kmeans, which also minimizes the SSW, the comparison returned FALSE. This discrepancy implies that while both methods aim to optimize the same criterion, they may converge to different solutions, likely due to differences in initial cluster-centers or the inherent randomness in the K-means algorithm.
+
+Then, I created a contingency table to compare the cluster assignments and see if there is a consistent one-to-one mapping between the clusters of both methods:
+```{r echo=FALSE}
+table(as.factor(best_run$cluster), as.factor(r_kmeans$cluster))
+```
+Based on the contingency table output from comparing the cluster assignments of my custom K-means function and R’s built-in kmeans function, I observed a strong agreement between the two clustering results. The table indicates that 452 samples in cluster 1 from my function correspond to cluster 1 of the kmeans function, and 225 samples in cluster 2 from my function match cluster 2 of the kmeans function, with only a small number of samples (6 in total) being assigned to different clusters.
+
+This high degree of correspondence suggests that despite the inherent randomness in the K-means algorithm and possible differences in the implementation details, both methods have converged to a similar partitioning of the data. The minor discrepancies can be attributed to the stochastic nature of the algorithm, where different initializations can lead to slightly varied outcomes.
+
+In conclusion, my implementation of the K-means algorithm is consistent with the built-in R function in identifying clusters within the breast cancer dataset, as evidenced by the large majority of data points being grouped into corresponding clusters by both methods. This gives me confidence in the robustness of my clustering approach and its suitability for analyzing this dataset.
+
+### Exploring Cluster Partitions with R’s Kmeans
+If there is a given dataset and choice of K, even with the same stopping conditions for R’s kmeans function and my own K-means implementation, Due to the random initialization of cluster_center in the K-means algorithm, which can lead to different solutions. Especially in datasets that have clusters that are not well-separated or have multiple potential cluster_center that could be considered as "optimal" depending on the starting points.
+
+Another factor is the potential presence of local minima in the dataset. K-means is susceptible to converging to local minima, which means that different runs might settle into different local minima, resulting in different cluster partitions. This is particularly true if the dataset does not have clear, distinct clusters, or if there is a lot of overlap between data points belonging to different clusters.
+
+Moreover, the order of operations and computational precision can also lead to differences. Although two algorithms may have the same theoretical approach, practical implementations may differ slightly due to computational aspects, which can lead to diverging results.
+
+Therefore, unless the initialization of cluster_center is controlled and is the same across both procedures, complete equivalence of the cluster partitions is not guaranteed.
+
+# Classification
+In the classification phase of this study, my primary objective is to develop predictive models that can accurately distinguish between benign and malignant breast cancer cases based on cytological characteristics. To achieve this, I have partitioned the BreastCancer dataset into training and testing sets, utilizing 80% for training to ensure comprehensive model learning and 20% for testing to validate the models' effectiveness: 
+```{r include=FALSE}
+set.seed(123)
+training_indices <- sample(1:nrow(BreastCancer), size = 0.8 * nrow(BreastCancer))
+training_data <- BreastCancer[training_indices, ]
+test_data <- BreastCancer[-training_indices, ]
+```
+```{r echo=FALSE}
+calculate_summary <- function(data) {
+  numeric_data <- data.frame(lapply(data, function(x) as.numeric(as.character(x))))
+  
+  summary_stats <- data.frame(
+    Mean = sapply(numeric_data, mean, na.rm = TRUE),
+    Median = sapply(numeric_data, median, na.rm = TRUE),
+    Min = sapply(numeric_data, min, na.rm = TRUE),
+    Max = sapply(numeric_data, max, na.rm = TRUE),
+    Variance = sapply(numeric_data, var, na.rm = TRUE),
+    SD = sapply(numeric_data, sd, na.rm = TRUE)
+  )
+  
+  # Apply rounding and formatting to each column individually
+  summary_stats$Mean <- round(summary_stats$Mean, 3)
+  summary_stats$Median <- round(summary_stats$Median, 3)
+  summary_stats$Min <- round(summary_stats$Min, 3)
+  summary_stats$Max <- round(summary_stats$Max, 3)
+  summary_stats$Variance <- format(round(summary_stats$Variance, 3), scientific = FALSE)
+  summary_stats$SD <- round(summary_stats$SD, 3)
+
+  return(summary_stats)
+}
+
+training_summary <- calculate_summary(training_data[,1:9])
+test_summary <- calculate_summary(test_data[,1:9])
+
+# Combine the training and test summaries
+summary_table <- rbind(Training = training_summary, Test = test_summary)
+
+kable(summary_table, caption = "Summary Statistics for Training and Test Data", digits = 3)
+```
+
+The summary statistics for both the training and test datasets reveal striking similarities in their distributions of key variables. Across various variables, including cell thickness, size, shape, and others, the mean values are remarkably close between the two datasets, differing only by small decimal places. Similarly, the median values, which are robust to outliers, exhibit minimal differences. This consistency suggests that the random split of approximately 80% for training and 20% for testing has resulted in representative subsets that capture the underlying data distribution effectively. The tight alignment of minimum and maximum values further supports this notion, indicating that extreme data points are well-distributed in both sets. Overall, these findings provide confidence in the quality of the data split, suggesting that the training and test datasets accurately reflect the broader population of patients with breast cancer. This balanced representation is crucial for building a robust and generalizable predictive model.
+
+### Build Subset Selection and LASSO Model
+In the pursuit of advancing breast cancer diagnostics, statistical modeling stands as a pivotal element in the interpretation and prediction of clinical outcomes. The complexity of cancer pathology necessitates the employment of sophisticated modeling techniques that can decipher intricate patterns and relationships within the data. This section of the analysis is dedicated to the development of two distinct predictive models: the Subset Selection Logistic Regression model and the LASSO Logistic Regression model.Here are the key summary of both subset selection in logistic regression and regularized logistic regression (LASSO):
+```{r include=FALSE}
+library(MASS)
+set.seed(123)
+model_subset <- stepAIC(glm(Class ~ ., data = training_data, family = binomial), direction = "both")
+```
+
+```{r echo=FALSE}
+subset_model_summary <- summary(model_subset)$coefficients
+
+# Round the coefficients to three decimal places
+subset_model_summary <- round(subset_model_summary, 3)
+
+kable(subset_model_summary, caption = "Coefficients from Subset Selection Logistic Regression", digits = 3)
+```
+
+```{r include=FALSE}
+library(glmnet)
+x <- model.matrix(Class ~ ., data = training_data)[,-1] # Excluding intercept
+y <- training_data$Class
+
+# Fit LASSO model
+set.seed(123)
+cv_lasso <- cv.glmnet(x, y, family = "binomial", alpha = 1)
+lasso_model <- glmnet(x, y, family = "binomial", alpha = 1, lambda = cv_lasso$lambda.min)
+```
+
+```{r echo=FALSE, fig.align = "center", out.width = "65%", out.height = "65%", fig.cap="LASSO Coefficient Paths", fig.pos="H"}
+lambda.range <- 10^seq(3, -3, by = -0.1)
+
+# Fit LASSO model over this wider range
+lasso_model_all <- glmnet(x, y, family = "binomial", alpha = 1, lambda = lambda.range)
+
+# Plotting the coefficients
+plot(lasso_model_all, xvar = "lambda", label = TRUE)
+```
+
+The Subset Selection Logistic Regression model, a traditional approach, includes multiple predictor variables such as Cl.thickness, Cell.shape, Marg.adhesion, Bare.nuclei, Bl.cromatin, Normal.nucleoli, and Mitoses to gauge the likelihood of breast tissue being malignant. The positive coefficients for Cl.thickness, Cell.shape, Bare.nuclei, Bl.cromatin, and Marg.adhesion suggest an increased risk of malignancy with their heightened values, indicating their critical role in the model's predictive power.
+
+In contrast, the LASSO path plot for the Regularized Logistic Regression model demonstrates the effect of the L1 penalty in variable selection and coefficient shrinkage. The plot reveals how coefficients for predictors approach and reach zero as the strength of regularization increases, signifying the diminishing contribution of some variables to the model as penalization intensifies. This technique highlights the most robust predictors while diminishing others, streamlining the model's complexity.
+
+Particularly in the LASSO model, while Mitoses initially appears to have a non-zero coefficient at lower lambda values, it is eventually shrunk to zero as lambda increases, reflecting its lesser predictive importance compared to other variables. Meanwhile, the coefficients for Cl.thickness, Cell.shape, Bare.nuclei, and Bl.cromatin remain non-zero across a broad range of lambda values, underlining their consistent relevance in distinguishing between benign and malignant samples.
+
+The observation from the LASSO path plot, complemented by the coefficient estimates from the Subset Selection model, provides a nuanced understanding of feature importance. While the Subset Selection model offers a detailed coefficient estimate for each variable, the LASSO model elucidates the variable importance across various regularization levels, allowing for a dynamic assessment of feature significance. This dynamic view, afforded by the LASSO path plot, confirms the robustness of certain predictors and offers a pragmatic approach to model simplification by phasing out less critical predictors like Mitoses when appropriate.
+
+### Variables Drop-out
+```{r echo=FALSE}
+subset_model_df <- data.frame(
+  Variable = rownames(subset_model_summary),
+  # Round the coefficients to three decimal places
+  Subset_Coefficient = round(subset_model_summary[, "Estimate"], 3)
+)
+
+non_zero_coefs_matrix <- as.matrix(coef(lasso_model, s = cv_lasso$lambda.min))
+non_zero_coefs_df <- data.frame(
+  Variable = rownames(non_zero_coefs_matrix),
+  LASSO_Coefficient = round(non_zero_coefs_matrix[,1], 3)
+)
+non_zero_coefs_df <- non_zero_coefs_df[!grepl("Id", non_zero_coefs_df$Variable), ]
+
+# Merge the two data frames
+combined_coefs_df <- merge(subset_model_df, non_zero_coefs_df, by = "Variable", all = TRUE)
+
+combined_coefs_df[is.na(combined_coefs_df)] <- "NA"
+
+kable(combined_coefs_df, caption = "Comparison of Coefficients from Subset Selection and LASSO Logistic Regression", digits = 3)
+```
+
+The comparison of coefficient values between the Subset Selection and LASSO Logistic Regression models reveals interesting insights into variable significance. In the Subset Selection model, variables such as Cell.size and Epith.c.size were not included, suggesting their exclusion during the model simplification process due to their lower significance in predicting malignancy within the context of other variables.
+
+Conversely, the LASSO model presents a different aspect of variable selection, as evidenced by the coefficient for Mitoses being reduced to zero, thereby indicating its exclusion. This is in stark contrast to the Subset Selection model, where Mitoses holds a substantial coefficient (0.5250), suggesting its potential influence on the outcome. This delineation showcases the LASSO model's capacity for regularization and variable selection, where it has discerned Mitoses to be less pivotal amidst the presence of other more influential predictors.
+
+### Relationships between the response and predictor variables
+Analyzing the coefficients from the Subset Selection logistic regression model, I observe that predictors like Cl.thickness, Cell.shape, and Bare.nuclei positively influence the log odds of a sample being malignant. Specifically, Bare.nuclei exhibits a notable coefficient (0.4186), reflecting a strong positive relationship with the probability of malignancy.
+
+The LASSO model retains key predictors such as Cl.thickness, Cell.shape, and Bare.nuclei with substantial non-zero coefficients, thereby affirming their predictive importance as seen in the Subset Selection model. The consistent retention of these variables across both models accentuates their significant roles in classifying the tissue samples. Although Mitoses is dismissed in the LASSO model, its inclusion in the Subset Selection model may imply a degree of influence that the LASSO penalization overshadowed.
+
+Collectively, the variables retained in both models are instrumental to the classification process. The consistent coefficients across models enlighten us on the attributes most strongly correlated with malignant breast cancer tissue. These findings illustrate the nuanced interplay of variables and reinforce their collective utility in differentiating between benign and malignant samples, with an acknowledgment of Mitoses' nuanced contribution in the broader model context.
+
+### Comparing the Accuracy of Two Models 
+In order to compare the performance of both models, I used cross-validation based on the test error:
+```{r echo=FALSE}
+# Split the data again into training and test sets
+BreastCancer$Id <- NULL  # Remove the Id column
+
+set.seed(234)
+training_indices <- sample(1:nrow(BreastCancer), size = 0.8 * nrow(BreastCancer))
+training_data <- BreastCancer[training_indices, ]
+test_data <- BreastCancer[-training_indices, ]
+
+library(glmnet)
+# Create model matrix excluding Id
+x_train <- model.matrix(Class ~ ., data = training_data)[,-1] # Excluding intercept
+y_train <- training_data$Class
+
+# Fit LASSO model
+set.seed(234)
+cv_lasso <- cv.glmnet(x_train, y_train, family = "binomial", alpha = 1)
+lasso_model <- glmnet(x_train, y_train, family = "binomial", alpha = 1, lambda = cv_lasso$lambda.min)
+
+# Convert to regular matrix and extract non-zero coefficients
+lasso_coefs <- as.matrix(coef(lasso_model, s = cv_lasso$lambda.min))
+non_zero_coefs <- lasso_coefs[lasso_coefs[, 1] != 0, , drop = FALSE]
+retained_vars <- rownames(non_zero_coefs)[-1] # Exclude the intercept
+
+# Adjust the test data for LASSO model
+formula_lasso <- as.formula(paste("Class ~", paste(retained_vars, collapse = " + ")))
+x_test_lasso <- model.matrix(formula_lasso, test_data)[,-1] # Excluding intercept
+
+# Predicting with the subset selection model on all variables
+subset_pred <- predict(model_subset, newdata = test_data, type = "response")
+subset_pred_class <- ifelse(subset_pred > 0.5, "malignant", "benign")
+subset_test_error <- mean(subset_pred_class != test_data$Class)
+
+# Predicting with the LASSO model on LASSO-selected variables
+lasso_pred <- predict(lasso_model, newx = x_test_lasso, s = cv_lasso$lambda.min, type = "response")
+lasso_pred_class <- ifelse(lasso_pred > 0.5, "malignant", "benign")
+lasso_test_error <- mean(lasso_pred_class != test_data$Class)
+
+# Compare test errors
+test_error_comparison <- data.frame(
+  Model = c("Subset Selection", "LASSO"),
+  Test_Error = c(subset_test_error, lasso_test_error)
+)
+kable(test_error_comparison, caption = "Test Error Camparison Between Two Models")
+```
+
+The test dataset comparison between the subset selection logistic regression and the LASSO logistic regression models demonstrates a discernible difference in performance. The subset selection model registers a test error of approximately 5.84%, which is slightly lower than the 6.57% error rate of the LASSO model. This indicates a marginally higher predictive accuracy for the subset selection model in classifying breast cancer samples.
+
+Despite the LASSO model's regularization leading to a sparser model with fewer variables, it does not surpass the subset selection model in predictive accuracy. Notably, the LASSO model includes variables such as Cell.size and Epith.c.size, which the subset selection model omits. This inclusion might suggest that the LASSO model, while slightly less accurate overall, could be capturing additional nuances of the data through these variables.
+
+This finding suggests a nuanced trade-off between model parsimony and predictive power. In situations where maximum accuracy is essential, such as medical diagnostics, the subset selection model might be favored for its inclusivity of significant variables, despite its higher complexity.
+
+The comparison underscores the necessity of a balanced approach to model selection, considering both the simplicity of the model and its capacity for accurate predictions. The LASSO model's slight reduction in accuracy points to the potential cost of its parsimony, particularly when excluding variables that may hold some predictive importance.
+
+### Final Choice on Classifier
+In determining the most suitable classifier, the subset selection model is chosen over the LASSO model, primarily due to its slightly superior test accuracy. This model selectively incorporates variables that significantly predict the classification of breast cancer tissue, potentially leading to its marginally better performance.
+
+Interestingly, the LASSO model, while typically known for its ability to simplify models by excluding less critical predictors, has actually retained a broader set of variables including Cell.size and Epith.c.size. This suggests a complexity to the LASSO model that is not present in the subset selection model, which has opted to exclude these variables.
+
+When considering misclassification errors, both models are susceptible to false positives and false negatives. Given the high stakes of breast cancer diagnosis, the nature of these errors is crucial. While the precise error tendencies of the models are not elaborated upon in this analysis, it is imperative to conduct a detailed assessment of the models' performance to understand their propensities for different error types.
+
+Ultimately, the selection of the subset selection model as the classifier of choice strikes a balance between achieving the highest accuracy and maintaining an acceptable level of complexity. It is chosen based on its marginally better performance on the test dataset, while also considering the potential implications of misclassification errors in a sensitive medical setting.
