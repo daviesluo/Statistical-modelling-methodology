@@ -20,12 +20,11 @@ A comprehensive statistical learning analysis of breast cancer diagnostic data u
 - Performance comparison and evaluation
 
 ## Repository Contents
+- Project Requirement
+- Raw data (from mlbench package)
 - Project report with detailed methodology and findings
 - R Markdown source files
-- Data analysis code
 - Presentation slides
-- Raw data (from mlbench package)
-- Results and visualizations
 
 ## Technical Stack
 ### Core Technologies
